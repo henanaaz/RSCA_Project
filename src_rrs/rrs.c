@@ -26,7 +26,7 @@ Flag rit_access(RIT *rit, Addr source_row){
         }
     }
   }
-
+    rit->s_num_accesses++;
     return retval; // Source row not found in RIT
 }
 
@@ -42,8 +42,8 @@ uns64 rit_swap(RIT *rit, Addr source_row, Addr dest_row) {
         rit->entries[i].dest_x = dest_row;
         rit->entries[i].dest_y = source_row;
         rit->entries[i].valid = TRUE;
-        rit->s_num_swaps = rit->s_num_swaps + 2;
-        delay += 4; // to account approximation for swap buffers
+        rit->s_num_swaps++; //= rit->s_num_swaps + 2;
+        delay += 4*10; // to account approximation for swap buffers
         break;
     }
   }
@@ -62,8 +62,19 @@ void rit_reset(RIT *rit) {
 // Perform lazy drain operation on the RIT
 uns64 rit_drain(RIT *rit) {
     // Implementation of lazy drain operation goes here
-    int delay = 4; //to accomodate unswaps of 2 entries
+    int delay = 4*10; //to accomodate unswaps of 2 entries
     rit->s_num_drains = rit->s_num_drains + 2;
+        // Iterate through the RIT entries
+    /*for (uns64 i = 0; i < rit->num_entries; i++) {
+        // Check if the entry is not locked
+        if (!rit->entries[i].valid) {
+            // Remove the entry by shifting subsequent entries
+            for (uns64 j = i; j < rit->num_entries - 1; j++) 
+            {
+                rit->entries[j] = rit->entries[j + 1];
+            }
+        }
+    }*/
 
     return delay;
 }

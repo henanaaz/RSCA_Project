@@ -16,7 +16,7 @@ using namespace std;
 MemSys *memsys_new(uns num_threads, uns64 rh_threshold){
     MemSys *m = (MemSys *) calloc (1, sizeof (MemSys));
     m->num_threads    = num_threads;
-    m->rh_threshold   = rh_threshold/6;
+    m->rh_threshold   = rh_threshold;
 
     // init main memory DRAM
     m->mainmem = dram_new(MEM_SIZE_MB*1024*1024, MEM_CHANNELS, MEM_BANKS, MEM_PAGESIZE, 
@@ -32,11 +32,11 @@ MemSys *memsys_new(uns num_threads, uns64 rh_threshold){
     int num_mg_trackers = MEM_BANKS;
     m->mgries_t = (MGries**) calloc(num_mg_trackers,sizeof(MGries*));
 
-    uns w = (64 * 4 * 1000000) / (MEM_T_RAS + MEM_T_RP);
-    uns num_entries = (w / m->rh_threshold);
+    uns act_max = (64 * 4 * 1000000) / (MEM_T_RAS + MEM_T_RP);
+    uns num_entries = (act_max / (m->rh_threshold/6));
     for(int i=0; i<num_mg_trackers; i++){
       //-- Think? What should be the threshold for mgries_new?
-      m->mgries_t[i] = mgries_new(num_entries, m->rh_threshold, i);
+      m->mgries_t[i] = mgries_new(num_entries, m->rh_threshold/6, i);
     }
 
     //-- TASK B --
@@ -47,8 +47,12 @@ MemSys *memsys_new(uns num_threads, uns64 rh_threshold){
     /* m->cra_t = cra_ctr_new(...);    */
 
     // RRS data structure: row indirection table
-    uns64 rit_rows = 50890;
-    m->rit = rit_new(rit_rows, rh_threshold/2);
+    uns64 rit_rows = 2*num_entries;
+
+    m->rit = (RIT**) calloc(num_mg_trackers,sizeof(RIT*));
+    for(int i=0; i<num_mg_trackers; i++){
+      m->rit[i] = rit_new(rit_rows, i);
+    }
 
     return m;
 }
@@ -91,9 +95,13 @@ void memsys_print_stats(MemSys *m)
 
     dram_print_stats(m->mainmem);
 
+    for(uns i=0; i< m->mainmem->num_banks; i++){
+      m->s_rit_tot_mig += m->rit[i]->s_num_swaps;
+    }
+
     printf("\n%s_TOT_ACCESS      \t : %llu",    header, m->s_totaccess);
     printf("\n%s_AVG_DELAY       \t : %llu",    header, avg_delay);
-    printf("\n%s_RH_TOT_MITIGATE \t : %llu",    header, m->s_tot_mitigate);
+    printf("\n%s_RIT_TOT_MIGRATIONS \t : %llu",    header, m->s_rit_tot_mig);
     printf("\n");
 
     uns64 num_install = 0;
@@ -108,7 +116,10 @@ void memsys_print_stats(MemSys *m)
       cra_ctr_print_stats(m->cra_t);
 
     if(m->rit)
-      rit_print_stats(m->rit);
+      for(uns i=0; i< m->mainmem->num_banks; i++)
+        rit_print_stats(m->rit[i]);
+
+
 }
 
 Addr random_num(Addr min_num, Addr max_num){
@@ -120,7 +131,7 @@ Addr random_num(Addr min_num, Addr max_num){
     hi_num = max_num + 1; // include max_num in output
   } else {
     low_num = max_num + 1; // include max_num in output
-    hi_num = min_num;
+    hi_num = min_num; 
   }
 
   srand(time(NULL));
@@ -137,32 +148,39 @@ uns64  memsys_dram_access(MemSys *m, Addr lineaddr, uns64 in_cycle, ACTinfo *act
   double burst_size=1.0; // one cache line
   uns64 delay=0;
 
-  if((in_cycle - m->rit->reset)/4000000 >= 64) {
+  /*if((in_cycle - m->rit->reset)/4000000 >= 64) {
     m->rit->reset = in_cycle;
     rit_reset(m->rit);
-  }
+  }*/
 
   delay += 22;
-  m->rit->s_num_accesses++;
+
 
   // parse address bits and get my bank
   uns64 mybankid, myrowbufid, mychannelid;
   dram_parseaddr(m->mainmem, lineaddr, &myrowbufid,&mybankid,&mychannelid);
   Flag issue_mitigation = mgries_access(m->mgries_t[mybankid], lineaddr/(m->mainmem->lines_in_rowbuf));
   if(issue_mitigation){
-    rit_access(m->rit, lineaddr/(m->mainmem->lines_in_rowbuf));
+    rit_access(m->rit[mybankid], lineaddr/(m->mainmem->lines_in_rowbuf));
   }
-  Flag issue_rit_mitigation = rit_access(m->rit, lineaddr/(m->mainmem->lines_in_rowbuf));
+  Flag issue_rit_mitigation = rit_access(m->rit[mybankid], lineaddr/(m->mainmem->lines_in_rowbuf));
   Addr random_addr = random_num(lineaddr/(m->mainmem->lines_in_rowbuf), lineaddr/(m->mainmem->lines_in_rowbuf) + m->mainmem->lines_in_rowbuf );
+  Flag rit_unswap = mgries_access(m->mgries_t[mybankid], random_addr);
+  if(rit_access(m->rit[mybankid], random_addr))
+    random_addr = random_num(lineaddr/(m->mainmem->lines_in_rowbuf), lineaddr/(m->mainmem->lines_in_rowbuf) + m->mainmem->lines_in_rowbuf );
+
+  if(rit_unswap) m->s_rit_tot_mig ++;
+
   if (!issue_rit_mitigation) {
     delay += dram_service(m->mainmem, random_addr, type, burst_size, in_cycle, act_info); // 2*2 times memory acccess done for row swap operation
     delay += dram_service(m->mainmem, lineaddr/(m->mainmem->lines_in_rowbuf), type, burst_size, in_cycle, act_info);
-    delay += rit_swap(m->rit, lineaddr/(m->mainmem->lines_in_rowbuf), random_addr);
-    m->rit->s_num_swaps = m->rit->s_num_swaps+2;
+    delay += rit_swap(m->rit[mybankid], lineaddr/(m->mainmem->lines_in_rowbuf), random_addr);
   }
   else {
     delay += dram_service(m->mainmem, lineaddr, type, burst_size, in_cycle, act_info);
+    delay += rit_drain(m->rit[mybankid]);
   }
+
 
   return delay;
 }

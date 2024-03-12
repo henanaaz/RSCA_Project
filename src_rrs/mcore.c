@@ -63,6 +63,7 @@ void mcore_cycle (MCore *c)
   if(c->cycle%256000000 == 0) {
     for(uns i = 0; i < MEM_BANKS; i++) {
       mgries_reset(c->memsys->mgries_t[i]);
+      rit_reset(c->memsys->rit[i]);
     }
   }
 

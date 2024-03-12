@@ -38,7 +38,7 @@ uns64       MEM_CLOSEPAGE   = 0;
 
 //-- Rowhammer Related --
 uns64       MEM_RSRV_MB      = 1024; //last 1 GB is reserved (for CRAM counters in DRAM)
-uns64       RH_THRESHOLD_ACT    = 512; //number of activations beyond which rowhammer bitflips might be possible.
+uns64       RH_THRESHOLD_ACT = 1024; //number of activations beyond which rowhammer bitflips might be possible.
 //-----------------------
 
 //-- RRS Related --

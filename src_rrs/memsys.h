@@ -30,9 +30,10 @@ struct MemSys {
   //----------------------------
 
   // ----- RRS -------
-  RIT	    *rit;
+  RIT	    **rit;
 
   uns64     s_totaccess;
+  uns64     s_rit_tot_mig;
   uns64     s_totdelaysum;
 };
 
