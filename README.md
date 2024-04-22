@@ -6,3 +6,4 @@ Steps to run:
 2. ../SCRIPTS/runall.sh
 
 The project uses Lab1 Assignment SimpleSim simulator and the SPEC traces provided.
+Pre-requisite: needs Traces, details also added in Makefile for downloading it from cloud.
